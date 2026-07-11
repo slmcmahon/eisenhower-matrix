@@ -40,7 +40,7 @@ function getAllTasks() {
     .prepare(
       `SELECT id, text, important, urgent, position, completed
        FROM tasks
-       ORDER BY important DESC, urgent DESC, position ASC, id ASC`
+       ORDER BY important DESC, urgent DESC, completed ASC, position ASC, id ASC`
     )
     .all();
 }
@@ -66,7 +66,27 @@ function updateTaskText(id, text) {
 }
 
 function setCompleted(id, completed) {
-  db.prepare('UPDATE tasks SET completed = ? WHERE id = ?').run(completed ? 1 : 0, id);
+  const nextCompleted = completed ? 1 : 0;
+  transaction(() => {
+    const task = db
+      .prepare('SELECT id, important, urgent, completed FROM tasks WHERE id = ?')
+      .get(id);
+    if (!task) return;
+
+    // Move to the end of the current quadrant order whenever completion changes.
+    // This keeps newly completed items at the bottom of the visible list.
+    const { maxPos } = db
+      .prepare(
+        'SELECT COALESCE(MAX(position), -1) AS maxPos FROM tasks WHERE important = ? AND urgent = ? AND id != ?'
+      )
+      .get(task.important, task.urgent, id);
+
+    db.prepare('UPDATE tasks SET completed = ?, position = ? WHERE id = ?').run(
+      nextCompleted,
+      Number(maxPos) + 1,
+      id
+    );
+  });
 }
 
 function deleteTask(id) {
@@ -86,7 +106,7 @@ function moveTask(id, important, urgent, newIndex) {
       .prepare(
         `SELECT id FROM tasks
          WHERE important = ? AND urgent = ? AND id != ?
-         ORDER BY position ASC, id ASC`
+         ORDER BY completed ASC, position ASC, id ASC`
       )
       .all(imp, urg, id)
       .map((r) => Number(r.id));
@@ -105,7 +125,7 @@ function moveTask(id, important, urgent, newIndex) {
         .prepare(
           `SELECT id FROM tasks
            WHERE important = ? AND urgent = ?
-           ORDER BY position ASC, id ASC`
+           ORDER BY completed ASC, position ASC, id ASC`
         )
         .all(task.important, task.urgent)
         .map((r) => Number(r.id));
