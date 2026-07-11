@@ -40,11 +40,19 @@ You can also launch the app directly from GitHub with `npx`:
 npx github:slmcmahon/eisenhower-matrix
 ```
 
+That command installs and runs the app from the repository's default branch (`main`).
+
 To install a reusable command locally:
 
 ```bash
 npm install -g github:slmcmahon/eisenhower-matrix
 eisenhower-matrix
+```
+
+To install from a non-default branch explicitly, append `#branch-name`:
+
+```bash
+npx github:slmcmahon/eisenhower-matrix#my-branch
 ```
 
 ## Usage
