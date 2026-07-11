@@ -1,4 +1,4 @@
-# Eisenhower Matrix
+# Eisenhower Matrix App
 
 A cross-platform desktop app (Windows, macOS, and Linux) for prioritizing your tasks with the
 **[Eisenhower Matrix](https://en.wikipedia.org/wiki/Time_management#Eisenhower_method)** — the "Urgent–Important" decision grid popularized by Dwight D. Eisenhower.
