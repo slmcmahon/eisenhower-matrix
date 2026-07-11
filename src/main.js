@@ -2,6 +2,8 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const db = require('./db');
 
+const appIconPath = path.join(__dirname, 'renderer', 'assets', 'icon.png');
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1100,
@@ -9,6 +11,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 700,
     title: 'Eisenhower Matrix',
+    icon: appIconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -19,6 +22,10 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(appIconPath);
+  }
+
   db.init();
 
   ipcMain.handle('tasks:getAll', () => db.getAllTasks());
