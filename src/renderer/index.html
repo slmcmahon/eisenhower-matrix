@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'" />
+  <title>Eisenhower Matrix</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>The Eisenhower Matrix</h1>
+    <p class="subtitle">(Urgent-Important Decision Grid)</p>
+  </header>
+
+  <div class="matrix-wrap">
+    <div class="axis-x">
+      <span class="axis-title">URGENCY</span>
+      <div class="axis-labels">
+        <span class="axis-pill">URGENT</span>
+        <span class="axis-pill">NOT URGENT</span>
+      </div>
+    </div>
+    <div class="matrix-body">
+      <div class="axis-y">
+        <span class="axis-title vertical">IMPORTANCE</span>
+        <div class="axis-labels vertical">
+          <span class="axis-pill vertical">IMPORTANT</span>
+          <span class="axis-pill vertical">NOT IMPORTANT</span>
+        </div>
+      </div>
+      <div class="matrix">
+        <section class="quadrant q1" data-important="1" data-urgent="1">
+          <div class="q-header">
+            <span class="corner-badge left">U</span>
+            <div class="q-titles">
+              <h2>Q1: DO FIRST</h2>
+              <p>Urgent &amp; Important</p>
+            </div>
+            <span class="corner-badge right">I</span>
+          </div>
+          <ul class="task-list" data-important="1" data-urgent="1"></ul>
+          <p class="q-footer">Act Immediately!</p>
+        </section>
+
+        <section class="quadrant q2" data-important="1" data-urgent="0">
+          <div class="q-header">
+            <span class="corner-badge left">N</span>
+            <div class="q-titles">
+              <h2>Q2: SCHEDULE</h2>
+              <p>Not Urgent &amp; Important</p>
+            </div>
+            <span class="corner-badge right">I</span>
+          </div>
+          <ul class="task-list" data-important="1" data-urgent="0"></ul>
+          <p class="q-footer">Designate time to work on these</p>
+        </section>
+
+        <section class="quadrant q3" data-important="0" data-urgent="1">
+          <div class="q-header">
+            <span class="corner-badge left">U</span>
+            <div class="q-titles">
+              <h2>Q3: DELEGATE</h2>
+              <p>Urgent &amp; Not Important</p>
+            </div>
+            <span class="corner-badge right">N</span>
+          </div>
+          <ul class="task-list" data-important="0" data-urgent="1"></ul>
+          <p class="q-footer">Find someone else to do these</p>
+        </section>
+
+        <section class="quadrant q4" data-important="0" data-urgent="0">
+          <div class="q-header">
+            <span class="corner-badge left">N</span>
+            <div class="q-titles">
+              <h2>Q4: ELIMINATE</h2>
+              <p>Not Urgent &amp; Not Important</p>
+            </div>
+            <span class="corner-badge right">N</span>
+          </div>
+          <ul class="task-list" data-important="0" data-urgent="0"></ul>
+          <p class="q-footer">Delete or reduce these completely</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat">
+    <div class="chat-log" id="chat-log"></div>
+    <form class="chat-input-row" id="chat-form">
+      <input
+        type="text"
+        id="chat-input"
+        placeholder="Type a task and press Return…"
+        autocomplete="off"
+      />
+    </form>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

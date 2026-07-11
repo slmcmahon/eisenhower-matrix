@@ -1,0 +1,21 @@
+node_modules/
+npm-debug.log*
+
+# Electron build output
+dist/
+out/
+build/
+
+# OS files
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Env files
+.env
+.env.local
+
+# Logs
+*.log
