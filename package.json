@@ -3,12 +3,20 @@
   "version": "1.0.0",
   "description": "Eisenhower Matrix task manager with chat-based task entry",
   "main": "src/main.js",
+  "bin": {
+    "eisenhower-matrix": "bin/eisenhower-matrix.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
   "scripts": {
     "start": "electron ."
   },
   "author": "Stephen McMahon",
   "license": "MIT",
-  "devDependencies": {
+  "dependencies": {
     "electron": "^43.1.0"
   },
   "allowScripts": {
