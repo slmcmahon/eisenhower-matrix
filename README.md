@@ -34,6 +34,19 @@ npm install
 npm start
 ```
 
+You can also launch the app directly from GitHub with `npx`:
+
+```bash
+npx github:slmcmahon/eisenhower-matrix
+```
+
+To install a reusable command locally:
+
+```bash
+npm install -g github:slmcmahon/eisenhower-matrix
+eisenhower-matrix
+```
+
 ## Usage
 
 1. Type a task in the chat box at the bottom and press **Enter**.
