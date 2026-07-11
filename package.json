@@ -9,7 +9,7 @@
   "author": "Stephen McMahon",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^38.0.0"
+    "electron": "^43.1.0"
   },
   "allowScripts": {
     "electron@38.8.6": true
