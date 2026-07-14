@@ -4,6 +4,11 @@ const { DatabaseSync } = require('node:sqlite');
 
 let db;
 
+function hasColumn(table, column) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  return cols.some((c) => c.name === column);
+}
+
 function init() {
   const dbPath = path.join(app.getPath('userData'), 'tasks.db');
   db = new DatabaseSync(dbPath);
@@ -15,10 +20,17 @@ function init() {
       important INTEGER NOT NULL CHECK (important IN (0, 1)),
       urgent INTEGER NOT NULL CHECK (urgent IN (0, 1)),
       position INTEGER NOT NULL DEFAULT 0,
+      priority_score REAL NOT NULL DEFAULT 0,
       completed INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  // Backward-compatible migration for existing local DBs.
+  if (!hasColumn('tasks', 'priority_score')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN priority_score REAL NOT NULL DEFAULT 0');
+  }
+
   return db;
 }
 
@@ -38,7 +50,7 @@ function transaction(fn) {
 function getAllTasks() {
   return db
     .prepare(
-      `SELECT id, text, important, urgent, position, completed
+      `SELECT id, text, important, urgent, position, priority_score, completed
        FROM tasks
        ORDER BY important DESC, urgent DESC, completed ASC, position ASC, id ASC`
     )
@@ -55,10 +67,71 @@ function addTask(text, important, urgent) {
     .get(imp, urg);
   const info = db
     .prepare(
-      'INSERT INTO tasks (text, important, urgent, position) VALUES (?, ?, ?, ?)'
+      'INSERT INTO tasks (text, important, urgent, position, priority_score) VALUES (?, ?, ?, ?, ?)'
     )
-    .run(text.trim(), imp, urg, Number(maxPos) + 1);
+    .run(text.trim(), imp, urg, Number(maxPos) + 1, 0);
   return Number(info.lastInsertRowid);
+}
+
+function addTaskRanked(text, important, urgent, priorityScore) {
+  const imp = important ? 1 : 0;
+  const urg = urgent ? 1 : 0;
+  const score = Number.isFinite(Number(priorityScore)) ? Number(priorityScore) : 0;
+
+  let out = { id: null, rank: 1, score };
+  transaction(() => {
+    const info = db
+      .prepare(
+        'INSERT INTO tasks (text, important, urgent, position, priority_score) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(text.trim(), imp, urg, 0, score);
+    const id = Number(info.lastInsertRowid);
+
+    const ordered = db
+      .prepare(
+        `SELECT id, completed, priority_score
+         FROM tasks
+         WHERE important = ? AND urgent = ? AND id != ?
+         ORDER BY completed ASC, position ASC, id ASC`
+      )
+      .all(imp, urg, id)
+      .map((r) => ({
+        id: Number(r.id),
+        completed: Number(r.completed),
+        priorityScore: Number(r.priority_score) || 0,
+      }));
+
+    const incompletes = ordered.filter((t) => t.completed === 0);
+    const completes = ordered.filter((t) => t.completed !== 0);
+
+    let insertAt = incompletes.length;
+    for (let i = 0; i < incompletes.length; i++) {
+      if (score > incompletes[i].priorityScore) {
+        insertAt = i;
+        break;
+      }
+    }
+
+    const orderedIds = [
+      ...incompletes.slice(0, insertAt).map((t) => t.id),
+      id,
+      ...incompletes.slice(insertAt).map((t) => t.id),
+      ...completes.map((t) => t.id),
+    ];
+
+    const upd = db.prepare(
+      'UPDATE tasks SET important = ?, urgent = ?, position = ? WHERE id = ?'
+    );
+    orderedIds.forEach((taskId, i) => upd.run(imp, urg, i, taskId));
+
+    out = {
+      id,
+      rank: insertAt + 1,
+      score,
+    };
+  });
+
+  return out;
 }
 
 function updateTaskText(id, text) {
@@ -139,6 +212,7 @@ module.exports = {
   init,
   getAllTasks,
   addTask,
+  addTaskRanked,
   updateTaskText,
   setCompleted,
   deleteTask,

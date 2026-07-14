@@ -1,6 +1,13 @@
 const path = require('path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const db = require('./db');
+const {
+  classifyTaskInput,
+  generateComparativeQuestions,
+  getAiSettings,
+  testAiSettings,
+  updateAiSettings,
+} = require('./question-generator');
 
 const appIconPath = path.join(__dirname, 'renderer', 'assets', 'icon.png');
 
@@ -32,6 +39,16 @@ app.whenReady().then(() => {
   ipcMain.handle('tasks:add', (_e, { text, important, urgent }) =>
     db.addTask(text, important, urgent)
   );
+  ipcMain.handle('tasks:addRanked', (_e, { text, important, urgent, priorityScore }) =>
+    db.addTaskRanked(text, important, urgent, priorityScore)
+  );
+  ipcMain.handle('tasks:generateQuestions', (_e, payload) =>
+    generateComparativeQuestions(app, payload)
+  );
+  ipcMain.handle('tasks:classifyInput', (_e, payload) => classifyTaskInput(app, payload));
+  ipcMain.handle('settings:getAi', () => getAiSettings(app));
+  ipcMain.handle('settings:testAi', () => testAiSettings(app));
+  ipcMain.handle('settings:updateAi', (_e, payload) => updateAiSettings(app, payload));
   ipcMain.handle('tasks:updateText', (_e, { id, text }) =>
     db.updateTaskText(id, text)
   );

@@ -5,8 +5,15 @@ const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 
 // ---------- Chat flow state machine ----------
-// idle -> asking (important) -> asking (urgent) -> save -> idle
-let pending = null; // { text, important }
+// idle -> important -> urgent -> generated q1/q2 -> save ranked -> idle
+let pending = null; // { text, important, urgent, comparativeQuestions, comparativeAnswers }
+
+const SCORE_WEIGHTS = {
+  important: 0.35,
+  urgent: 0.3,
+  comparative1: 0.2,
+  comparative2: 0.15,
+};
 
 function addMsg(text, who) {
   const div = document.createElement('div');
@@ -35,6 +42,263 @@ function addYesNoButtons(onAnswer) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+async function configureFoundryOnStartup() {
+  let settings = await window.api.getAiSettings();
+  let test = await window.api.testAiSettings();
+
+  while (!test.ok) {
+    const reasonText = test.reason === 'missing' ? 'missing' : 'not working';
+    const shouldUpdate = window.confirm(
+      `Azure AI Foundry settings are ${reasonText}. Click OK to enter details, or Cancel to continue with fallback questions.`
+    );
+    if (!shouldUpdate) {
+      addMsg('Azure AI Foundry is unavailable. Using fallback comparative questions.', 'bot');
+      return;
+    }
+
+    const endpoint = window.prompt(
+      'Azure AI Foundry endpoint (https://<resource>.cognitiveservices.azure.com)',
+      settings.endpoint || ''
+    );
+    if (endpoint === null) return;
+
+    const deployment = window.prompt('Deployment name', settings.deployment || '');
+    if (deployment === null) return;
+
+    const apiVersion = window.prompt('API version', settings.apiVersion || '2025-01-01-preview');
+    if (apiVersion === null) return;
+
+    const apiKey = window.prompt('API key (leave blank to keep existing)', '');
+    if (apiKey === null) return;
+
+    settings = await window.api.updateAiSettings({
+      endpoint,
+      deployment,
+      apiVersion,
+      apiKey,
+    });
+    test = await window.api.testAiSettings();
+  }
+
+  addMsg('Azure AI Foundry connection verified.', 'bot');
+}
+
+function zoneLabel(important, urgent) {
+  return important
+    ? urgent
+      ? 'Q1: Do First'
+      : 'Q2: Schedule'
+    : urgent
+      ? 'Q3: Delegate'
+      : 'Q4: Eliminate';
+}
+
+function computePriorityScore(important, urgent, comparativeAnswers) {
+  const c1 = comparativeAnswers[0] ? 1 : 0;
+  const c2 = comparativeAnswers[1] ? 1 : 0;
+  const score =
+    (important ? 1 : 0) * SCORE_WEIGHTS.important +
+    (urgent ? 1 : 0) * SCORE_WEIGHTS.urgent +
+    c1 * SCORE_WEIGHTS.comparative1 +
+    c2 * SCORE_WEIGHTS.comparative2;
+  return Number((score * 100).toFixed(1));
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function findTaskByText(tasks, query) {
+  const needle = normalizeText(query);
+  if (!needle) return null;
+  return (
+    tasks.find((task) => normalizeText(task.text) === needle) ||
+    tasks.find((task) => normalizeText(task.text).includes(needle)) ||
+    null
+  );
+}
+
+function tasksInSameQuadrant(tasks, task) {
+  return tasks
+    .filter(
+      (candidate) =>
+        Boolean(candidate.important) === Boolean(task.important) &&
+        Boolean(candidate.urgent) === Boolean(task.urgent)
+    )
+    .sort((a, b) => Number(a.position) - Number(b.position));
+}
+
+async function startNewTaskFlow(text, assumed) {
+  if (assumed) {
+    addMsg('Intent was not confident enough. Assuming this is a new task.', 'bot');
+  }
+  pending = {
+    text,
+    important: null,
+    urgent: null,
+    comparativeQuestions: [],
+    comparativeAnswers: [],
+  };
+  askImportant();
+}
+
+async function executeRename(tasks, classification, originalInput) {
+  let task = tasks.find((item) => item.id === classification.taskId) || null;
+  let followUps = 0;
+
+  if (!task) {
+    const answer = window.prompt('Which existing task do you want to rename?');
+    if (!answer) return false;
+    followUps += 1;
+    task = findTaskByText(tasks, answer);
+  }
+  if (!task) {
+    addMsg('Could not find the task to rename. Assuming this is a new task instead.', 'bot');
+    await startNewTaskFlow(originalInput, false);
+    return true;
+  }
+
+  let nextText = classification.newText;
+  if (!nextText) {
+    const answer = window.prompt(`New title for "${task.text}"?`);
+    if (!answer) return false;
+    followUps += 1;
+    nextText = answer.trim();
+  }
+  if (!nextText || followUps > 2) return false;
+
+  await window.api.updateTaskText(task.id, nextText);
+  addMsg(`Renamed "${task.text}" to "${nextText}".`, 'bot');
+  await refresh();
+  return true;
+}
+
+async function executeDelete(tasks, classification, originalInput) {
+  let task = tasks.find((item) => item.id === classification.taskId) || null;
+  let followUps = 0;
+
+  if (!task) {
+    const answer = window.prompt('Which existing task do you want to delete?');
+    if (!answer) return false;
+    followUps += 1;
+    task = findTaskByText(tasks, answer);
+  }
+  if (!task) {
+    addMsg('Could not find the task to delete. Assuming this is a new task instead.', 'bot');
+    await startNewTaskFlow(originalInput, false);
+    return true;
+  }
+  if (followUps < 2 && !window.confirm(`Delete "${task.text}"?`)) return false;
+
+  await window.api.deleteTask(task.id);
+  addMsg(`Deleted "${task.text}".`, 'bot');
+  await refresh();
+  return true;
+}
+
+async function executeComplete(tasks, classification, originalInput) {
+  let task = tasks.find((item) => item.id === classification.taskId) || null;
+
+  if (!task) {
+    const answer = window.prompt('Which task should be marked complete?');
+    if (!answer) return false;
+    task = findTaskByText(tasks, answer);
+  }
+  if (!task) {
+    addMsg('Could not find the task to complete. Assuming this is a new task instead.', 'bot');
+    await startNewTaskFlow(originalInput, false);
+    return true;
+  }
+
+  await window.api.setCompleted(task.id, true);
+  addMsg(`Marked "${task.text}" complete.`, 'bot');
+  await refresh();
+  return true;
+}
+
+async function executeReprioritize(tasks, classification, originalInput) {
+  let task = tasks.find((item) => item.id === classification.taskId) || null;
+  let followUps = 0;
+
+  if (!task) {
+    const answer = window.prompt('Which task should be reprioritized?');
+    if (!answer) return false;
+    followUps += 1;
+    task = findTaskByText(tasks, answer);
+  }
+  if (!task) {
+    addMsg('Could not find the task to reprioritize. Assuming this is a new task instead.', 'bot');
+    await startNewTaskFlow(originalInput, false);
+    return true;
+  }
+
+  let position = classification.position;
+  if (position === 'none') {
+    const answer = window.prompt('Move it to top, bottom, before, or after?');
+    if (!answer) return false;
+    followUps += 1;
+    position = normalizeText(answer);
+  }
+
+  const quadrantTasks = tasksInSameQuadrant(tasks, task);
+  let newIndex = quadrantTasks.findIndex((item) => item.id === task.id);
+  if (position === 'top') newIndex = 0;
+  else if (position === 'bottom') newIndex = quadrantTasks.length - 1;
+  else if (position === 'before' || position === 'after') {
+    let reference = tasks.find((item) => item.id === classification.referenceTaskId) || null;
+    if (!reference) {
+      const answer = window.prompt(`Which task should "${task.text}" go ${position}?`);
+      if (!answer) return false;
+      followUps += 1;
+      reference = findTaskByText(quadrantTasks.filter((item) => item.id !== task.id), answer);
+    }
+    if (!reference) return false;
+    const referenceIndex = quadrantTasks.findIndex((item) => item.id === reference.id);
+    newIndex = position === 'before' ? referenceIndex : referenceIndex + 1;
+  }
+
+  if (followUps > 2) return false;
+
+  await window.api.moveTask(task.id, Boolean(task.important), Boolean(task.urgent), newIndex);
+  addMsg(`Reprioritized "${task.text}" within ${zoneLabel(Boolean(task.important), Boolean(task.urgent))}.`, 'bot');
+  await refresh();
+  return true;
+}
+
+async function handleClassifiedInput(text) {
+  const tasks = await window.api.getAllTasks();
+  const classification = await window.api.classifyTaskInput(text, tasks);
+
+  if (classification.intent === 'add_task') {
+    await startNewTaskFlow(text, false);
+    return;
+  }
+
+  if (classification.confidence <= 80) {
+    await startNewTaskFlow(text, true);
+    return;
+  }
+
+  if (classification.intent === 'rename_task' && (await executeRename(tasks, classification, text))) {
+    return;
+  }
+  if (classification.intent === 'delete_task' && (await executeDelete(tasks, classification, text))) {
+    return;
+  }
+  if (classification.intent === 'complete_task' && (await executeComplete(tasks, classification, text))) {
+    return;
+  }
+  if (
+    classification.intent === 'reprioritize_task' &&
+    (await executeReprioritize(tasks, classification, text))
+  ) {
+    return;
+  }
+
+  addMsg('Assuming this is a new task.', 'bot');
+  await startNewTaskFlow(text, false);
+}
+
 function askImportant() {
   addMsg('Is this important?', 'bot');
   addYesNoButtons((important) => {
@@ -46,15 +310,58 @@ function askImportant() {
 function askUrgent() {
   addMsg('Is this urgent?', 'bot');
   addYesNoButtons(async (urgent) => {
-    const { text, important } = pending;
-    pending = null;
-    await window.api.addTask(text, important, urgent);
-    const q = important ? (urgent ? 'Q1: Do First' : 'Q2: Schedule') : urgent ? 'Q3: Delegate' : 'Q4: Eliminate';
-    addMsg(`Added to ${q}.`, 'bot');
-    chatInput.disabled = false;
-    chatInput.focus();
-    await refresh();
+    pending.urgent = urgent;
+    await askComparativeQuestions();
   });
+}
+
+async function askComparativeQuestions() {
+  const { text, important, urgent } = pending;
+  const tasks = await window.api.getAllTasks();
+  const zoneTasks = tasks.filter(
+    (t) =>
+      Boolean(t.important) === Boolean(important) &&
+      Boolean(t.urgent) === Boolean(urgent) &&
+      !t.completed
+  );
+
+  const questions = await window.api.generateComparativeQuestions(
+    text,
+    important,
+    urgent,
+    zoneTasks
+  );
+
+  pending.comparativeQuestions = Array.isArray(questions) ? questions.slice(0, 2) : [];
+  pending.comparativeAnswers = [];
+  askComparativeQuestionAt(0);
+}
+
+function askComparativeQuestionAt(index) {
+  const questions = pending.comparativeQuestions || [];
+  if (index >= 2 || !questions[index]) {
+    void finalizeRankedAdd();
+    return;
+  }
+
+  addMsg(questions[index], 'bot');
+  addYesNoButtons((answer) => {
+    pending.comparativeAnswers.push(answer);
+    askComparativeQuestionAt(index + 1);
+  });
+}
+
+async function finalizeRankedAdd() {
+  const { text, important, urgent, comparativeAnswers } = pending;
+  const score = computePriorityScore(important, urgent, comparativeAnswers || []);
+  const result = await window.api.addTaskRanked(text, important, urgent, score);
+  const q = zoneLabel(important, urgent);
+
+  pending = null;
+  addMsg(`Added to ${q} at rank #${result.rank} (score ${score}).`, 'bot');
+  chatInput.disabled = false;
+  chatInput.focus();
+  await refresh();
 }
 
 chatForm.addEventListener('submit', (e) => {
@@ -64,8 +371,12 @@ chatForm.addEventListener('submit', (e) => {
   addMsg(text, 'user');
   chatInput.value = '';
   chatInput.disabled = true;
-  pending = { text, important: null };
-  askImportant();
+  void handleClassifiedInput(text).finally(() => {
+    if (!pending) {
+      chatInput.disabled = false;
+      chatInput.focus();
+    }
+  });
 });
 
 // ---------- Matrix rendering ----------
@@ -219,5 +530,8 @@ for (const quad of document.querySelectorAll('.quadrant')) {
 }
 
 // ---------- Init ----------
-addMsg('Type a task below and press Return to get started.', 'bot');
-refresh();
+void (async () => {
+  await configureFoundryOnStartup();
+  addMsg('Type a task below and press Return to get started.', 'bot');
+  await refresh();
+})();

@@ -6,6 +6,12 @@ const { spawn } = require('child_process');
 const args = process.argv.slice(2);
 const appRoot = path.resolve(__dirname, '..');
 
+try {
+  require(path.join(appRoot, 'scripts', 'bootstrap-foundry.js')).bootstrap();
+} catch (error) {
+  console.warn(`[bootstrap] skipped: ${error.message}`);
+}
+
 if (args.includes('--help') || args.includes('-h')) {
   console.log('Usage: eisenhower-matrix [electron-args]');
   console.log('Launches the Eisenhower Matrix desktop app.');
