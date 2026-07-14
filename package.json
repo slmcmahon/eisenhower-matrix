@@ -8,10 +8,14 @@
   },
   "files": [
     "bin",
+    "scripts",
     "src",
     "README.md"
   ],
   "scripts": {
+    "bootstrap:foundry": "node scripts/bootstrap-foundry.js",
+    "setup:foundry": "npm run bootstrap:foundry",
+    "prestart": "npm run bootstrap:foundry",
     "start": "electron ."
   },
   "author": "Stephen McMahon",
